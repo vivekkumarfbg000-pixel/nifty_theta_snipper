@@ -1,0 +1,7 @@
+pandas
+numpy
+requests
+upstox-python-sdk
+python-telegram-bot
+python-dotenv
+pyyaml

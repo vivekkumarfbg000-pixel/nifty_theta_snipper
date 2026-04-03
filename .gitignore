@@ -1,0 +1,22 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Data
+*.csv
+*.log
+
+# AWS Keys
+*.pem
+
+# IDEs
+.vscode/
+.idea/
