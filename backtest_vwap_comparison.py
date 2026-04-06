@@ -1,7 +1,7 @@
 import pandas as pd
 from datetime import datetime
 from logger import logger
-from upstox_client import UpstoxClient
+from upstox_helper import UpstoxClient
 
 # Nifty 50 Expiry Rules:
 # Pre-Sep 2025: Thursdays

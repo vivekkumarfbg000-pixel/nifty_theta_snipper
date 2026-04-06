@@ -14,10 +14,32 @@ TOTAL_CAPITAL = 500000  # ₹5,00,000
 MAX_DAILY_LOSS_PCT = 0.03  # 3% of capital
 MAX_MONTHLY_LOSS_PCT = 0.05  # 5% of capital
 
+# Broker Choice (Set to "UPSTOX", "ALICE_BLUE", or "WEBHOOK")
+BROKER = os.getenv("BROKER", "WEBHOOK") 
+PAPER_TRADING = os.getenv("PAPER_TRADING", "True").lower() == "true" # ₹0 Real Money if True
+
 # Upstox API
 UPSTOX_ACCESS_TOKEN = os.getenv("UPSTOX_ACCESS_TOKEN")
 NIFTY_INST_KEY = "NSE_INDEX|Nifty 50"
 VIX_INST_KEY = "NSE_INDEX|India VIX"
+
+# Alice Blue API
+ALICE_BLUE_USER_ID = os.getenv("ALICE_BLUE_USER_ID")
+ALICE_BLUE_API_KEY = os.getenv("ALICE_BLUE_API_KEY")
+ALICE_BLUE_API_SECRET = os.getenv("ALICE_BLUE_API_SECRET")
+ALICE_BLUE_TOTP_KEY = os.getenv("ALICE_BLUE_TOTP_KEY")
+ALICE_NIFTY_TSYMBOL = "Nifty 50"
+
+# Webhook Bridge (1lyalgos)
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://api.1lyalgos.com/v3/webhook/tradingview/14364086-972f-45f8-acc9-bf90a751b7111775474149")
+# Placeholder format for 1lyalgos (Update this if needed!)
+WEBHOOK_PAYLOAD_FORMAT = {
+    "symbol": "{symbol}",
+    "action": "{side}",
+    "type": "MARKET",
+    "quantity": "{qty}",
+    "strategy_id": "SNIPER_V3"
+}
 
 # Strategy Rules (Regime Thresholds)
 VIX_THRESHOLD_CALM = 14.0
@@ -35,6 +57,7 @@ TP_PCT_STRANGLE = 0.60  # 60% target
 TP_PCT_IRON_CONDOR = 0.50  # 50% target
 
 # Timing
+OPENING_TIME = "09:15:00"
 ENTRY_TIME = "09:20:00"
 EXIT_TIME_LIMIT = "15:15:00"
 EARLY_PROFIT_TIME = "14:30:00"

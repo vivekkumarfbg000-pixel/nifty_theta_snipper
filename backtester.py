@@ -2,7 +2,7 @@
 import pandas as pd
 from datetime import datetime, timedelta
 from main import StrategyOrchestrator
-from upstox_client import UpstoxClient
+from upstox_helper import UpstoxClient
 from config import NIFTY_INST_KEY, VIX_INST_KEY
 from logger import logger
 

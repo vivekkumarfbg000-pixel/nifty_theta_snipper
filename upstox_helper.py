@@ -1,6 +1,9 @@
 # upstox_client.py
 import requests
 import pandas as pd
+import gzip
+import io
+import os
 from datetime import datetime
 from config import UPSTOX_ACCESS_TOKEN
 from logger import logger
@@ -13,6 +16,8 @@ class UpstoxClient:
             'Accept': 'application/json',
             'Authorization': f'Bearer {self.token}'
         }
+        self.inst_df = None
+        self._ensure_instruments_loaded()
 
     def get_historical_candles(self, instrument_key, from_date, to_date, interval='1minute'):
         """
@@ -43,27 +48,48 @@ class UpstoxClient:
             logger.error(f"Failed to fetch data for {instrument_key}: {str(e)}")
             return None
 
-    def get_instrument_key(self, trading_symbol):
+    def _ensure_instruments_loaded(self):
         """
-        Resolve an instrument key from a trading symbol using the Search API.
+        Download and load the NSE F&O instrument list locally if needed.
         """
-        url = "https://api.upstox.com/v1/instruments/search"
-        params = {'query': trading_symbol, 'segments': 'FO'}
+        file_path = "NSE_FO.json.gz"
+        # Download once a day if missing
+        if not os.path.exists(file_path):
+            # Using the official assets URL for the NSE JSON master list
+            url = "https://assets.upstox.com/market-quote/instruments/exchange/NSE.json.gz"
+            try:
+                logger.info("Downloading official Upstox Instrument List (JSON)...")
+                response = requests.get(url, timeout=30)
+                response.raise_for_status()
+                with open(file_path, "wb") as f:
+                    f.write(response.content)
+            except Exception as e:
+                logger.error(f"Failed to download instruments: {str(e)}")
+                return
         
         try:
-            # We use the same headers (token is valid for v1 and v2)
-            response = requests.get(url, headers=self.headers, params=params)
-            response.raise_for_status()
-            data = response.json()
-            if data['status'] == 'success':
-                for item in data['data']:
-                    # Exact match check
-                    if item['trading_symbol'] == trading_symbol:
-                        return item['instrument_key']
-            return None
+            # The JSON file is large, so we load it and filter immediately to save memory
+            df = pd.read_json(file_path, compression='gzip')
+            # Filter for NSE F&O segment to keep the local search fast
+            self.inst_df = df[df['segment'] == 'NSE_FO'].copy()
+            logger.info(f"Instrument List Loaded Successfully ({len(self.inst_df)} NSE_FO scrips).")
         except Exception as e:
-            logger.error(f"Failed to resolve key for {trading_symbol}: {str(e)}")
-            return None
+            logger.error(f"Failed to load instruments into memory: {str(e)}")
+
+    def get_instrument_key(self, trading_symbol):
+        """
+        Resolve an instrument key from a trading symbol using local search.
+        """
+        if self.inst_df is None:
+            self._ensure_instruments_loaded()
+            
+        if self.inst_df is not None:
+            match = self.inst_df[self.inst_df['trading_symbol'] == trading_symbol]
+            if not match.empty:
+                return match['instrument_key'].values[0]
+        
+        logger.error(f"Could not resolve key for {trading_symbol} in local list.")
+        return None
 
     def get_option_symbol(self, strike, expiry_date, type="CE", is_monthly=False):
         """

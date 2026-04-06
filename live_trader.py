@@ -2,11 +2,14 @@
 import time
 import pandas as pd
 from datetime import datetime
-from config import ENTRY_TIME, EXIT_TIME_LIMIT, NIFTY_INST_KEY, VIX_INST_KEY, NIFTY_LOT_SIZE, NIFTY_LOTS_V3
+from config import OPENING_TIME, ENTRY_TIME, EXIT_TIME_LIMIT, NIFTY_INST_KEY, VIX_INST_KEY, NIFTY_LOT_SIZE, NIFTY_LOTS_V3, BROKER, ALICE_NIFTY_TSYMBOL, PAPER_TRADING
 from logger import logger, log_trade
-from upstox_client import UpstoxClient
+from upstox_helper import UpstoxClient
 from upstox_orders import UpstoxOrderEngine
-from telegram_bot import send_telegram_message, format_daily_report, format_weekly_report
+from alice_blue_helper import AliceBlueClient
+from alice_blue_orders import AliceBlueOrderEngine
+from webhook_orders import WebhookOrderEngine
+from telegram_bot import send_telegram_message, format_daily_report, format_weekly_report, format_entry_alert, format_hourly_status
 from trade_journal import log_trade_to_journal, get_weekly_stats
 from live_monitor import LiveMonitor
 from regime_detector import detect_regime
@@ -17,16 +20,30 @@ from risk_manager import RiskManager
 
 class LiveTrader:
     def __init__(self, paper_trading=True):
-        self.client = UpstoxClient()
-        self.order_engine = UpstoxOrderEngine(paper_trading=paper_trading)
+        self.broker = BROKER
+        if self.broker == "ALICE_BLUE":
+            self.client = AliceBlueClient()
+            self.order_engine = AliceBlueOrderEngine(paper_trading=paper_trading)
+            self.nifty_key = ALICE_NIFTY_TSYMBOL
+        elif self.broker == "WEBHOOK":
+            # Use Webhook for orders, Upstox for data
+            self.client = UpstoxClient()
+            self.order_engine = WebhookOrderEngine(paper_trading=paper_trading)
+            self.nifty_key = NIFTY_INST_KEY
+        else:
+            self.client = UpstoxClient()
+            self.order_engine = UpstoxOrderEngine(paper_trading=paper_trading)
+            self.nifty_key = NIFTY_INST_KEY
+
         self.monitor = LiveMonitor()
         self.risk_manager = RiskManager()
         self.reentry_manager = ReentryManager()
         
-        self.active_positions = {}  # pos_key -> {entry_price, inst_key, qty, type}
+        self.active_positions = {}  # pos_key -> {entry_price, inst_key, qty, type, instrument}
         self.synthetic_premium_history = [] # list of (timestamp, price, volume)
         self.regime = None
         self.entry_vix = 0.0
+        self.last_hourly_msg_hour = -1
         
     def get_vwap_breach_status(self):
         """
@@ -78,49 +95,89 @@ class LiveTrader:
                  (df_5m['price'].iloc[-1] < df_5m['vwap'].iloc[-1])
         return signal
 
-    def wait_until_920(self):
+    def wait_until(self, target_time_str, label="Entry"):
         """
-        Wait for market entry time (9:20 AM IST).
+        Wait for a specific time (HH:MM:SS format).
         """
-        logger.info(f"Target Entry Time: {ENTRY_TIME}. Waiting...")
+        logger.info(f"Waiting for {label} Time: {target_time_str}...")
         while True:
             now = datetime.now().time()
-            if now >= datetime.strptime(ENTRY_TIME, "%H:%M:%S").time():
+            if now >= datetime.strptime(target_time_str, "%H:%M:%S").time():
                 break
             time.sleep(10)
 
     def execute_entry(self):
         """
-        Resolve ATM strikes and place orders for Monday's start.
+        Resolve ATM strikes and place orders.
         """
-        logger.info("Executing 9:20 AM Order Sequence...")
+        logger.info(f"Executing 9:20 AM Order Sequence for {self.broker}...")
         try:
             # 1. Get Spot & Strike
-            quotes = self.monitor.get_ltp([NIFTY_INST_KEY])
-            spot = quotes[NIFTY_INST_KEY]
+            quotes = self.monitor.get_ltp([self.nifty_key])
+            spot = quotes.get(self.nifty_key)
+            if not spot:
+                logger.error(f"Failed to get Spot price for {self.nifty_key}")
+                return False
+                
             strike = round(spot / 50) * 50
             logger.info(f"Nifty Spot: {spot}, Selected Strike: {strike}")
             
-            # 2. Get Leg Keys
-            ce_key = self.client.get_instrument_key(self.client.get_option_symbol(strike, datetime.now(), "CE"))
-            pe_key = self.client.get_instrument_key(self.client.get_option_symbol(strike, datetime.now(), "PE"))
+            # 2. Get Leg Keys/Instruments
+            from datetime import timedelta
+            today = datetime.now()
+            days_until_thursday = (3 - today.weekday()) % 7
+            expiry_date = today + timedelta(days=days_until_thursday)
             
-            if not ce_key or not pe_key:
-                logger.error(f"Could not resolve instruments for {strike}")
-                return False
+            if self.broker == "ALICE_BLUE":
+                # Alice Blue specific resolution
+                # Symbols are typically like NIFTY24APR20000CE
+                # We'll use a generic constructor for now or search
+                expiry_str = expiry_date.strftime("%d%b%y").upper() # 10APR24
+                ce_symbol = f"NIFTY{expiry_str}{strike}CE"
+                pe_symbol = f"NIFTY{expiry_str}{strike}PE"
                 
+                ce_inst = self.client.get_instrument(ce_symbol)
+                pe_inst = self.client.get_instrument(pe_symbol)
+                
+                ce_key, pe_key = ce_symbol, pe_symbol
+                ce_val, pe_val = ce_inst, pe_inst
+            else:
+                ce_symbol = self.client.get_option_symbol(strike, expiry_date, "CE")
+                pe_symbol = self.client.get_option_symbol(strike, expiry_date, "PE")
+                ce_val = self.client.get_instrument_key(ce_symbol)
+                pe_val = self.client.get_instrument_key(pe_symbol)
+                ce_key, pe_key = ce_val, pe_val
+
+            if not ce_val or not pe_val:
+                if self.order_engine.paper_trading:
+                    logger.warning(f"Could not resolve instruments. Falling back to MOCK for Paper Trading.")
+                    ce_key, pe_key = f"MOCK_{strike}CE", f"MOCK_{strike}PE"
+                    ce_val, pe_val = ce_key, pe_key
+                else:
+                    logger.error(f"Could not resolve instruments for {strike}")
+                    return False
+            
             # 3. Place Orders
             qty = NIFTY_LOTS_V3 * NIFTY_LOT_SIZE
-            self.order_engine.place_option_order(ce_key, "SELL", qty)
-            self.order_engine.place_option_order(pe_key, "SELL", qty)
+            self.order_engine.place_option_order(ce_val, "SELL", qty)
+            self.order_engine.place_option_order(pe_val, "SELL", qty)
             
-            # 4. Telegram Notification
-            msg = f"🚀 *Nifty Theta Sniper V3*: Trade Entered!\n• Strike: {strike}\n• Quantity: {qty} (2 Lots)\n• Type: ATM Straddle"
+            # 4. Fetch Real Entry Prices for Reporting
+            entry_quotes = self.monitor.get_ltp([ce_key, pe_key])
+            ce_entry = entry_quotes.get(ce_key, 100.0) # Fallback to 100 if fetch fails
+            pe_entry = entry_quotes.get(pe_key, 100.0)
+            
+            if ce_key not in entry_quotes or pe_key not in entry_quotes:
+                logger.warning(f"Could not fetch real-time entry LTP for {ce_key}/{pe_key}. Using fallback 100.0")
+
+            # 5. Telegram Notification
+            total_entry_premium = ce_entry + pe_entry
+            msg = format_entry_alert(self.broker, strike, qty, total_entry_premium, self.order_engine.paper_trading)
             send_telegram_message(msg)
 
-            # 5. Update Position State
-            self.active_positions[ce_key] = {'qty': qty, 'type': 'SELL', 'inst_key': ce_key, 'entry_price': 0.0}
-            self.active_positions[pe_key] = {'qty': qty, 'type': 'SELL', 'inst_key': pe_key, 'entry_price': 0.0}
+            # 6. Update Position State
+            self.active_positions[ce_key] = {'qty': qty, 'type': 'SELL', 'inst_key': ce_key, 'entry_price': ce_entry, 'instrument': ce_val}
+            self.active_positions[pe_key] = {'qty': qty, 'type': 'SELL', 'inst_key': pe_key, 'entry_price': pe_entry, 'instrument': pe_val}
             return True
         except Exception as e:
             logger.error(f"Entry Execution Failed: {str(e)}")
@@ -129,20 +186,35 @@ class LiveTrader:
     def run(self):
         logger.info(f"--- Nifty Theta Sniper V3: LIVE TRADER READY (Paper: {self.order_engine.paper_trading}) ---")
         
-        self.wait_until_920()
+        self.wait_until(OPENING_TIME, "Market Opening")
+        send_telegram_message(f"☀️ *Nifty Theta Sniper Bot is Online!*\nBroker: {self.broker}\nWaiting for 09:20 Entry...")
+
+        self.wait_until(ENTRY_TIME, "Trade Entry")
         if self.execute_entry():
             logger.info("Monitoring Active. Heartbeat: 10s.")
             while True:
                 now = datetime.now()
-                if now.time() >= datetime.strptime(EXIT_TIME_LIMIT, "%H:%M:%S").time():
+                
+                # --- Hourly Status Update ---
+                if now.minute == 0 and now.hour != self.last_hourly_msg_hour:
+                    self.send_hourly_update(now)
+                    self.last_hourly_msg_hour = now.hour
+                
+                # --- Monitoring Loop ---
+                    # 2. Fetch Real Exit Prices for Reporting
+                    exit_quotes = self.monitor.get_ltp(list(self.active_positions.keys()))
+                    
+                    total_entry_premium = sum(pos['entry_price'] for pos in self.active_positions.values())
+                    total_exit_premium = sum(exit_quotes.get(k, 75.0) for k in self.active_positions.keys()) # Fallback to 75 (total 150)
+                    
                     self.order_engine.square_off_all(self.active_positions)
                     
                     # 3. Log Today's Trade to Journal (Realistic P&L)
-                    # Simulated entry/exit for paper results
-                    trade_stats = log_trade_to_journal(now.strftime("%Y-%m-%d"), "ATM", 200, 150, NIFTY_LOTS_V3 * NIFTY_LOT_SIZE)
+                    # Use real summed premiums for the journal
+                    trade_stats = log_trade_to_journal(now.strftime("%Y-%m-%d"), "ATM", total_entry_premium, total_exit_premium, NIFTY_LOTS_V3 * NIFTY_LOT_SIZE)
                     
                     # 4. Daily Telegram Report
-                    final_report = format_daily_report(now.strftime("%Y-%m-%d"), "ATM", 200, 150, trade_stats['net_pnl'], trade_stats['points_captured'])
+                    final_report = format_daily_report(now.strftime("%Y-%m-%d"), "ATM", total_entry_premium, total_exit_premium, trade_stats['net_pnl'], trade_stats['points_captured'])
                     send_telegram_message("🏁 *Market Close Update*\n" + final_report)
                     
                     # 5. Weekly Friday Audit
@@ -153,7 +225,44 @@ class LiveTrader:
                     break
                 time.sleep(10)
 
+    def send_hourly_update(self, now):
+        """
+        Send status message with P&L and VWAP.
+        """
+        if not self.active_positions: return
+        
+        try:
+            # 1. Fetch Current Prices
+            inst_keys = list(self.active_positions.keys())
+            quotes = self.monitor.get_ltp(inst_keys + [self.nifty_key])
+            spot = quotes.get(self.nifty_key, 0.0)
+            
+            # 2. Calculate P&L
+            total_entry = sum(pos['entry_price'] for pos in self.active_positions.values())
+            total_current = sum(quotes.get(k, pos['entry_price']) for k, pos in self.active_positions.items())
+            points_gain = total_entry - total_current
+            qty = next(iter(self.active_positions.values()))['qty']
+            pnl = points_gain * qty
+            
+            # 3. Calculate VWAP
+            vwap = 0.0
+            if self.synthetic_premium_history:
+                df = pd.DataFrame(self.synthetic_premium_history, columns=['timestamp', 'price', 'volume'])
+                vwap = (df['price'] * df['volume']).sum() / df['volume'].sum() if df['volume'].sum() > 0 else total_current
+            else:
+                vwap = total_current # Fallback
+            
+            # 4. Send Message
+            msg = format_hourly_status(now.strftime("%H:%M"), spot, total_current, pnl, vwap, points_gain)
+            send_telegram_message(msg)
+            
+            # 5. Record History for next VWAP calc
+            self.synthetic_premium_history.append((now, total_current, 1)) # Simple volume tracker
+            
+        except Exception as e:
+            logger.error(f"Hourly Update Failed: {str(e)}")
+
 if __name__ == "__main__":
-    # SET paper_trading=True FOR MONDAY'S INITIAL RUN
-    trader = LiveTrader(paper_trading=True)
+    # Settings derived from config.py
+    trader = LiveTrader(paper_trading=PAPER_TRADING)
     trader.run()

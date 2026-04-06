@@ -12,6 +12,7 @@ ENV/
 
 # Data
 *.csv
+*.gz
 *.log
 
 # AWS Keys
@@ -20,3 +21,9 @@ ENV/
 # IDEs
 .vscode/
 .idea/
+
+# Temp/Test Scripts
+test_*.py
+verify_*.py
+today_trade_simulation.py
+    ""

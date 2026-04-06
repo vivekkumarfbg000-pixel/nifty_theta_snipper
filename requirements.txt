@@ -5,3 +5,5 @@ upstox-python-sdk
 python-telegram-bot
 python-dotenv
 pyyaml
+pya3
+pyotp

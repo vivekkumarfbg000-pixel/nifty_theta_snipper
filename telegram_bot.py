@@ -45,6 +45,39 @@ STATUS: {status} | Net P&L: INR {pnl:,.2f}
     """
     return report
 
+def format_entry_alert(broker, strike, qty, premium, paper=True):
+    """
+    Alert for trade entry.
+    """
+    mode = "🟢 PAPER" if paper else "🔴 LIVE"
+    report = f"""
+🚀 *{broker} ENTRY ALERT* ({mode})
+---------------------------------------
+• *Instrument*: NIFTY
+• *ATM Strike*: {strike}
+• *Total Quantity*: {qty}
+• *Total Premium*: INR {premium:.2f}
+---------------------------------------
+    """
+    return report
+
+def format_hourly_status(time_str, spot, premium, pnl, vwap, points):
+    """
+    Professional hourly status update.
+    """
+    status = "🟢" if pnl >= 0 else "🔴"
+    report = f"""
+⏳ *HOURLY UPDATE* ({time_str})
+---------------------------------------
+• *Nifty Spot*: {spot}
+• *Premium*: {premium:.2f}
+• *Current P&L*: {status} INR {pnl:,.2f}
+• *VWAP (Decay)*: {vwap:.2f}
+• *Points Gain*: {points:+.1f}
+---------------------------------------
+    """
+    return report
+
 def format_weekly_report(stats):
     """
     Create a professional summary for the weekly report.

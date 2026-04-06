@@ -1,7 +1,7 @@
 # backtest_full.py
 import pandas as pd
 from datetime import datetime, timedelta
-from upstox_client import UpstoxClient
+from upstox_helper import UpstoxClient
 from config import NIFTY_INST_KEY, VIX_INST_KEY, NIFTY_LOT_SIZE
 from main import StrategyOrchestrator
 from logger import logger, log_trade
