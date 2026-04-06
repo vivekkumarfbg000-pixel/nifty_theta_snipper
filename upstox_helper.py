@@ -76,20 +76,76 @@ class UpstoxClient:
         except Exception as e:
             logger.error(f"Failed to load instruments into memory: {str(e)}")
 
-    def get_instrument_key(self, trading_symbol):
+    def get_instrument_key(self, strike=None, expiry_date=None, option_type=None, trading_symbol=None):
         """
-        Resolve an instrument key from a trading symbol using local search.
+        Resolve an instrument key. 
+        Highly robust: Searches by Strike/Expiry/Type if provided, falls back to trading_symbol.
         """
         if self.inst_df is None:
             self._ensure_instruments_loaded()
             
         if self.inst_df is not None:
-            match = self.inst_df[self.inst_df['trading_symbol'] == trading_symbol]
-            if not match.empty:
-                return match['instrument_key'].values[0]
+            if strike is not None and expiry_date is not None and option_type is not None:
+                # 1. Search by attributes (Robust)
+                # Convert expiry to YYYY-MM-DD if it's a datetime object
+                if isinstance(expiry_date, datetime):
+                    expiry_str = expiry_date.strftime("%Y-%m-%d")
+                else:
+                    expiry_str = expiry_date
+                
+                # Check for various common Upstox JSON column names
+                def get_col(candidates):
+                    for c in candidates:
+                        if c in self.inst_df.columns: return f"['{c}']"
+                        # Case insensitive search
+                        for col in self.inst_df.columns:
+                            if c.lower() == col.lower(): return f"['{col}']"
+                    return None
+
+                strike_col = 'strike_price' if 'strike_price' in self.inst_df.columns else 'strike'
+                expiry_col = 'expiry' if 'expiry' in self.inst_df.columns else None
+                type_col = 'option_type' if 'option_type' in self.inst_df.columns else 'instrument_type'
+                
+                if not expiry_col:
+                    cols = [c for c in self.inst_df.columns if 'expiry' in c.lower()]
+                    if cols: expiry_col = cols[0]
+
+                if strike_col in self.inst_df.columns and expiry_col and type_col in self.inst_df.columns:
+                    # 1. Ensure columns are processed correctly (numeric strike, date-string expiry)
+                    self.inst_df[strike_col] = pd.to_numeric(self.inst_df[strike_col], errors='coerce')
+                    
+                    # Robust Expiry conversion: handles Unix ms, Unix s, and standard strings
+                    if pd.api.types.is_numeric_dtype(self.inst_df[expiry_col]):
+                        # 1.7e12 is definitely milliseconds
+                        self.inst_df['expiry_dt_str'] = pd.to_datetime(self.inst_df[expiry_col], unit='ms', errors='coerce').dt.date.astype(str)
+                    else:
+                        self.inst_df['expiry_dt_str'] = pd.to_datetime(self.inst_df[expiry_col], errors='coerce').dt.date.astype(str)
+                    
+                    matches = self.inst_df[
+                        (self.inst_df[strike_col] == float(strike)) & 
+                        (self.inst_df['expiry_dt_str'] == expiry_str) &
+                        (self.inst_df[type_col].str.upper() == option_type.upper()) &
+                        (self.inst_df['name'].str.contains("NIFTY", case=False))
+                    ].copy()
+                    
+                    if not matches.empty:
+                        # Priority: exact 'NIFTY' or 'NIFTY 50' name
+                        nifty_match = matches[matches['name'].isin(['NIFTY', 'NIFTY 50'])]
+                        if nifty_match.empty: nifty_match = matches # Fallback
+                        
+                        key = nifty_match['instrument_key'].values[0]
+                        symbol = nifty_match['trading_symbol'].values[0]
+                        logger.info(f"SUCCESS: Resolved {symbol} -> {key}")
+                        return key, symbol
+
+            # 2. Fallback to trading_symbol search
+            if trading_symbol:
+                match = self.inst_df[self.inst_df['trading_symbol'] == trading_symbol]
+                if not match.empty:
+                    return match['instrument_key'].values[0], trading_symbol
         
-        logger.error(f"Could not resolve key for {trading_symbol} in local list.")
-        return None
+        logger.error(f"Could not resolve key for {trading_symbol or strike} in local list.")
+        return None, None
 
     def get_option_symbol(self, strike, expiry_date, type="CE", is_monthly=False):
         """

@@ -78,11 +78,9 @@ class VWAPBacktester:
         # Simple monthly check: Last Tuesday of month
         is_monthly = (expiry.day > 24) and (expiry.month == date_obj.month)
         
-        ce_sym = self.client.get_option_symbol(strike, expiry, "CE", is_monthly)
-        pe_sym = self.client.get_option_symbol(strike, expiry, "PE", is_monthly)
-        
-        ce_key = self.client.get_instrument_key(ce_sym)
-        pe_key = self.client.get_instrument_key(pe_sym)
+        expiry_dt = datetime.combine(expiry, datetime.min.time())
+        ce_key, ce_sym = self.client.get_instrument_key(strike=strike, expiry_date=expiry_dt, option_type="CE")
+        pe_key, pe_sym = self.client.get_instrument_key(strike=strike, expiry_date=expiry_dt, option_type="PE")
         
         if not ce_key or not pe_key: return None
         

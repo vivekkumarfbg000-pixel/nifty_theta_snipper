@@ -142,10 +142,8 @@ class LiveTrader:
                 ce_key, pe_key = ce_symbol, pe_symbol
                 ce_val, pe_val = ce_inst, pe_inst
             else:
-                ce_symbol = self.client.get_option_symbol(strike, expiry_date, "CE")
-                pe_symbol = self.client.get_option_symbol(strike, expiry_date, "PE")
-                ce_val = self.client.get_instrument_key(ce_symbol)
-                pe_val = self.client.get_instrument_key(pe_symbol)
+                ce_val, ce_symbol = self.client.get_instrument_key(strike=strike, expiry_date=expiry_date, option_type="CE")
+                pe_val, pe_symbol = self.client.get_instrument_key(strike=strike, expiry_date=expiry_date, option_type="PE")
                 ce_key, pe_key = ce_val, pe_val
 
             if not ce_val or not pe_val:
