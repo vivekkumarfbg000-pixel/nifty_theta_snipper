@@ -240,7 +240,16 @@ class LiveTrader:
                     total_exit_premium = sum(exit_quotes.get(k, 100.0) for k in self.active_positions.keys()) if self.active_positions else 0.0
                     
                     # 3. Log Today's Trade to Journal
-                    trade_stats = log_trade_to_journal(now.strftime("%Y-%m-%d"), "ATM", total_entry_premium, total_exit_premium, NIFTY_LOTS_V3 * NIFTY_LOT_SIZE)
+                    trade_stats = log_trade_to_journal(
+                        date=now.strftime("%Y-%m-%d"), 
+                        strike="ATM", 
+                        entry_price=total_entry_premium, 
+                        exit_price=total_exit_premium, 
+                        quantity=NIFTY_LOTS_V3 * NIFTY_LOT_SIZE,
+                        strategy="STRADDLE",
+                        regime="NORMAL", # You could use self.current_regime here if tracked
+                        is_paper=self.order_engine.paper_trading
+                    )
                     
                     # 4. Daily Telegram Report
                     final_report = format_daily_report(now.strftime("%Y-%m-%d"), "ATM", total_entry_premium, total_exit_premium, trade_stats['net_pnl'], trade_stats['points_captured'])

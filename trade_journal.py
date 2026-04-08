@@ -5,7 +5,7 @@ from datetime import datetime
 from config import TRADES_CSV_PATH, SLIPPAGE_PER_LEG
 from cost_calculator import calculate_net_pnl
 
-def log_trade_to_journal(date, strike, entry_price, exit_price, quantity):
+def log_trade_to_journal(date, strike, entry_price, exit_price, quantity, strategy="STRADDLE", regime="NORMAL", is_paper=True):
     """
     Append a trade result to the CSV journal with Net P&L and Slippage.
     """
@@ -21,12 +21,18 @@ def log_trade_to_journal(date, strike, entry_price, exit_price, quantity):
     
     trade_data = {
         'date': date,
+        'strategy': strategy,
+        'regime': regime,
         'strike': strike,
+        'quantity': quantity,
+        'entry_premium': round(entry_price, 2),
+        'exit_premium': round(exit_price, 2),
         'gross_pnl': round(gross_pnl, 2),
         'net_pnl': round(net_pnl, 2),
         'costs': round(total_costs, 2),
-        'slippage_impact': round(SLIPPAGE_PER_LEG * 2 * quantity, 2),
-        'points_captured': round(entry_price - exit_price, 2)
+        'points_captured': round(entry_price - exit_price, 2),
+        'is_paper': is_paper,
+        'notes': "" # For the manual journal entry later
     }
     
     df = pd.DataFrame([trade_data])
