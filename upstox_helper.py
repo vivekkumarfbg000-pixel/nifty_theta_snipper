@@ -104,7 +104,7 @@ class UpstoxClient:
 
                 strike_col = 'strike_price' if 'strike_price' in self.inst_df.columns else 'strike'
                 expiry_col = 'expiry' if 'expiry' in self.inst_df.columns else None
-                type_col = 'option_type' if 'option_type' in self.inst_df.columns else 'instrument_type'
+                type_col = 'instrument_type' if 'instrument_type' in self.inst_df.columns else 'option_type'
                 
                 if not expiry_col:
                     cols = [c for c in self.inst_df.columns if 'expiry' in c.lower()]

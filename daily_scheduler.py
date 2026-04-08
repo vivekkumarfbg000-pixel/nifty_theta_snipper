@@ -41,12 +41,12 @@ def run_scheduler():
         send_telegram_message(msg)
         return
 
-    # 2. Daily Execution
+    # Daily Execution
     msg = f"☀️ *Nifty Theta Sniper*: Good Morning! Trading Day Detected. Starting Live Monitoring at 9:15 AM."
     send_telegram_message(msg)
     
-    # Normally we'd use subprocess.Popen to start live_trader.py
-    # subprocess.Popen(["python", "live_trader.py"])
+    # Start the live trader bot
+    subprocess.Popen(["python", "live_trader.py"])
 
 if __name__ == "__main__":
     run_scheduler()

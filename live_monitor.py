@@ -65,8 +65,20 @@ class LiveMonitor:
                     res[inst['TSymbol']] = val # Map by symbol for consistency
             return res
 
+        # Handle Mock instruments for Paper Trading
+        result = {}
+        real_instruments = []
+        for inst in instruments:
+            if isinstance(inst, str) and inst.startswith("MOCK_"):
+                result[inst] = 100.0
+            else:
+                real_instruments.append(inst)
+
+        if not real_instruments:
+            return result
+
         # Upstox implementation
-        keys_str = ",".join(instruments)
+        keys_str = ",".join(real_instruments)
         url = f"{self.base_url}/market-quote/ltp"
         params = {'instrument_key': keys_str}
         
@@ -76,8 +88,7 @@ class LiveMonitor:
             response.raise_for_status()
             data = response.json()
             
-            result = {}
-            if data['status'] == 'success':
+            if data.get('status', '') == 'success':
                 for key, details in data['data'].items():
                     norm_key = key.replace(":", "|")
                     result[norm_key] = details['last_price']

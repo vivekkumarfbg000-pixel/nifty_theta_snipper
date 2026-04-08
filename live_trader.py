@@ -110,7 +110,7 @@ class LiveTrader:
         """
         Resolve ATM strikes and place orders.
         """
-        logger.info(f"Executing 9:20 AM Order Sequence for {self.broker}...")
+        logger.info(f"Executing Late Entry Order Sequence for {self.broker}...")
         try:
             # 1. Get Spot & Strike
             quotes = self.monitor.get_ltp([self.nifty_key])
@@ -192,23 +192,54 @@ class LiveTrader:
             logger.info("Monitoring Active. Heartbeat: 10s.")
             while True:
                 now = datetime.now()
+                current_time_str = now.strftime("%H:%M:%S")
                 
                 # --- Hourly Status Update ---
                 if now.minute == 0 and now.hour != self.last_hourly_msg_hour:
                     self.send_hourly_update(now)
                     self.last_hourly_msg_hour = now.hour
                 
-                # --- Monitoring Loop ---
+                # --- Monitoring & Risk Management ---
+                try:
+                    # 1. Fetch current prices for all active legs
+                    inst_keys = list(self.active_positions.keys())
+                    current_prices = self.monitor.get_ltp(inst_keys)
+                    
+                    # 2. Check exit rules (SL / TP / Time)
+                    # Note: self.regime might be None if no VIX data, check_exit_rules should handle it
+                    actions = check_exit_rules(self.active_positions, current_prices, current_time_str, self.regime)
+                    
+                    for pos_key, action_data in actions.items():
+                        action = action_data['action']
+                        reason = action_data['reason']
+                        
+                        if action == ExitAction.EXIT_LEG:
+                            logger.info(f"Stopping Leg {pos_key} (Type: {self.active_positions[pos_key]['type']}) due to {reason}")
+                            self.order_engine.place_option_order(self.active_positions[pos_key]['instrument'], "BUY", self.active_positions[pos_key]['qty'])
+                            del self.active_positions[pos_key]
+                            
+                        elif action == ExitAction.EXIT_ALL:
+                            logger.info(f"Closing All Positions due to {reason}")
+                            self.order_engine.square_off_all(self.active_positions)
+                            self.active_positions.clear()
+                            break
+
+                except Exception as e:
+                    logger.error(f"Monitoring Loop Error: {str(e)}")
+
+                # --- Market Close Clean-up ---
+                if current_time_str >= EXIT_TIME_LIMIT or not self.active_positions:
+                    if self.active_positions:
+                        logger.info(f"Market Close reached ({EXIT_TIME_LIMIT}). Squaring off remaining positions.")
+                        self.order_engine.square_off_all(self.active_positions)
+                    
                     # 2. Fetch Real Exit Prices for Reporting
-                    exit_quotes = self.monitor.get_ltp(list(self.active_positions.keys()))
+                    exit_quotes = self.monitor.get_ltp(list(self.active_positions.keys())) if self.active_positions else {}
                     
-                    total_entry_premium = sum(pos['entry_price'] for pos in self.active_positions.values())
-                    total_exit_premium = sum(exit_quotes.get(k, 75.0) for k in self.active_positions.keys()) # Fallback to 75 (total 150)
+                    total_entry_premium = sum(pos['entry_price'] for pos in self.active_positions.values()) if self.active_positions else 0.0
+                    total_exit_premium = sum(exit_quotes.get(k, 100.0) for k in self.active_positions.keys()) if self.active_positions else 0.0
                     
-                    self.order_engine.square_off_all(self.active_positions)
-                    
-                    # 3. Log Today's Trade to Journal (Realistic P&L)
-                    # Use real summed premiums for the journal
+                    # 3. Log Today's Trade to Journal
                     trade_stats = log_trade_to_journal(now.strftime("%Y-%m-%d"), "ATM", total_entry_premium, total_exit_premium, NIFTY_LOTS_V3 * NIFTY_LOT_SIZE)
                     
                     # 4. Daily Telegram Report
@@ -221,6 +252,7 @@ class LiveTrader:
                         weekly_msg = format_weekly_report(stats)
                         send_telegram_message(weekly_msg)
                     break
+                
                 time.sleep(10)
 
     def send_hourly_update(self, now):
