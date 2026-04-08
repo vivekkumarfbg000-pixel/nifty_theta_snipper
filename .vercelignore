@@ -1,0 +1,15 @@
+# Ignore all bot files
+*.py
+*.csv
+*.json
+*.gz
+*.bat
+logs/
+__pycache__/
+.env
+README.md
+
+# Only include the dashboard assets
+!api/
+!public/
+!vercel.json
