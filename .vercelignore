@@ -13,3 +13,7 @@ README.md
 !api/
 !public/
 !vercel.json
+requirements.txt
+setup_vps.bat
+NSE_FO.json.gz
+NSE_FO.csv.gz
