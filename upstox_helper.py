@@ -110,33 +110,50 @@ class UpstoxClient:
                     cols = [c for c in self.inst_df.columns if 'expiry' in c.lower()]
                     if cols: expiry_col = cols[0]
 
-                if strike_col in self.inst_df.columns and expiry_col and type_col in self.inst_df.columns:
                     # 1. Ensure columns are processed correctly (numeric strike, date-string expiry)
                     self.inst_df[strike_col] = pd.to_numeric(self.inst_df[strike_col], errors='coerce')
                     
                     # Robust Expiry conversion: handles Unix ms, Unix s, and standard strings
-                    if pd.api.types.is_numeric_dtype(self.inst_df[expiry_col]):
-                        # 1.7e12 is definitely milliseconds
-                        self.inst_df['expiry_dt_str'] = pd.to_datetime(self.inst_df[expiry_col], unit='ms', errors='coerce').dt.date.astype(str)
-                    else:
-                        self.inst_df['expiry_dt_str'] = pd.to_datetime(self.inst_df[expiry_col], errors='coerce').dt.date.astype(str)
+                    if expiry_col in self.inst_df.columns:
+                        # Try to detect if it's numeric (Unix timestamp) or string
+                        # Even if object dtype, we can try to check if elements are numeric
+                        is_numeric = pd.api.types.is_numeric_dtype(self.inst_df[expiry_col])
+                        if not is_numeric:
+                             # Try partial conversion to see if it's numeric strings
+                             first_val = self.inst_df[expiry_col].iloc[0] if not self.inst_df.empty else None
+                             if first_val and str(first_val).replace('.','').isdigit() and len(str(int(float(first_val)))) >= 10:
+                                 is_numeric = True
+                        
+                        if is_numeric:
+                            # 1.7e12 is definitely milliseconds
+                            self.inst_df['expiry_dt_str'] = pd.to_datetime(self.inst_df[expiry_col], unit='ms', errors='coerce').dt.date.astype(str)
+                        else:
+                            self.inst_df['expiry_dt_str'] = pd.to_datetime(self.inst_df[expiry_col], errors='coerce').dt.date.astype(str)
                     
+                    # Filter for NIFTY options with matching strike and type
                     matches = self.inst_df[
                         (self.inst_df[strike_col] == float(strike)) & 
-                        (self.inst_df['expiry_dt_str'] == expiry_str) &
                         (self.inst_df[type_col].str.upper() == option_type.upper()) &
-                        (self.inst_df['name'].str.contains("NIFTY", case=False))
+                        (self.inst_df['name'].str.upper().isin(['NIFTY', 'NIFTY 50']))
                     ].copy()
-                    
+
                     if not matches.empty:
-                        # Priority: exact 'NIFTY' or 'NIFTY 50' name
-                        nifty_match = matches[matches['name'].isin(['NIFTY', 'NIFTY 50'])]
-                        if nifty_match.empty: nifty_match = matches # Fallback
+                        # Find the match for the requested expiry_str
+                        exact_match = matches[matches['expiry_dt_str'] == expiry_str]
                         
-                        key = nifty_match['instrument_key'].values[0]
-                        symbol = nifty_match['trading_symbol'].values[0]
-                        logger.info(f"SUCCESS: Resolved {symbol} -> {key}")
-                        return key, symbol
+                        if exact_match.empty:
+                            # Find the NEAREST expiry >= today
+                            today_str = datetime.now().strftime("%Y-%m-%d")
+                            future_matches = matches[matches['expiry_dt_str'] >= today_str].sort_values('expiry_dt_str')
+                            if not future_matches.empty:
+                                exact_match = future_matches.head(1)
+                                logger.info(f"Exact expiry {expiry_str} not found. Selecting nearest: {exact_match['expiry_dt_str'].values[0]}")
+                        
+                        if not exact_match.empty:
+                            key = exact_match['instrument_key'].values[0]
+                            symbol = exact_match['trading_symbol'].values[0]
+                            logger.info(f"SUCCESS: Resolved {symbol} -> {key}")
+                            return key, symbol
 
             # 2. Fallback to trading_symbol search
             if trading_symbol:
