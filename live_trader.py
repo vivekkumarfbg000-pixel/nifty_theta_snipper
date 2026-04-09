@@ -207,7 +207,8 @@ class LiveTrader:
                     
                     # 2. Check exit rules (SL / TP / Time)
                     # Note: self.regime might be None if no VIX data, check_exit_rules should handle it
-                    actions = check_exit_rules(self.active_positions, current_prices, current_time_str, self.regime)
+                    positions_summary = {k: v['entry_price'] for k, v in self.active_positions.items()}
+                    actions = check_exit_rules(positions_summary, current_prices, current_time_str, self.regime)
                     
                     for pos_key, action_data in actions.items():
                         action = action_data['action']

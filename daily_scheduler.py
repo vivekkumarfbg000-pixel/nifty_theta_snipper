@@ -2,6 +2,7 @@
 import datetime
 import time
 import subprocess
+import sys
 from logger import logger
 from telegram_bot import send_telegram_message
 
@@ -46,7 +47,7 @@ def run_scheduler():
     send_telegram_message(msg)
     
     # Start the live trader bot
-    subprocess.Popen(["python", "live_trader.py"])
+    subprocess.Popen([sys.executable, "live_trader.py"])
 
 if __name__ == "__main__":
     run_scheduler()
