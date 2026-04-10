@@ -89,9 +89,27 @@ class LiveMonitor:
             data = response.json()
             
             if data.get('status', '') == 'success':
-                for key, details in data['data'].items():
+                # Map results by both the returned key and the internal instrument_token
+                api_data = data.get('data', {})
+                if not api_data:
+                    logger.warning(f"Upstox API returned success but data is empty for keys: {keys_str}. Are the keys valid?")
+                    
+                for key, details in api_data.items():
+                    price = details.get('last_price')
+                    if price is None: 
+                        logger.warning(f"Upstox API returned NO 'last_price' for {key}. It may have zero trading volume.")
+                        continue
+                    
+                    # 1. Match by normalization (e.g. NSE_FO:54810 -> NSE_FO|54810)
                     norm_key = key.replace(":", "|")
-                    result[norm_key] = details['last_price']
+                    result[norm_key] = price
+                    
+                    # 2. Match by internal token (e.g. "instrument_token": "NSE_FO|54810")
+                    token = details.get('instrument_token')
+                    if token:
+                        result[token] = price
+            else:
+                logger.error(f"Upstox API returned non-success status: {data}")
             
             # Check for Nifty Spot Fallback
             if NIFTY_INST_KEY not in result and NIFTY_INST_KEY in instruments:

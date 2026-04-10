@@ -35,9 +35,12 @@ def check_exit_rules(positions, current_prices, current_time_str, regime, vwap_b
         return actions
 
     # 2. Rule: Combine Premium Target (TP)
-    total_entry_premium = sum(positions.values())
-    total_current_premium = sum(current_prices.values())
+    total_entry_premium = sum(val for val in positions.values() if isinstance(val, (int, float)))
+    total_current_premium = sum(val for val in current_prices.values() if isinstance(val, (int, float)))
     
+    if total_current_premium == 0 and total_entry_premium > 0:
+        return actions # Do not evaluate TPs/SLs if price feed is completely dead/missing
+
     tp_pct = TP_PCT_STRADDLE if regime == Regime.CALM else TP_PCT_STRANGLE
     if total_current_premium <= (total_entry_premium * (1 - tp_pct)):
         for pos_key in positions:

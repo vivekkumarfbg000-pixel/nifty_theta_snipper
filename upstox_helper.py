@@ -139,10 +139,14 @@ class UpstoxClient:
                         
                         if exact_match.empty:
                             today_str = datetime.now().strftime("%Y-%m-%d")
-                            future_matches = matches[matches['expiry_dt_str'] >= today_str].sort_values('expiry_dt_str')
+                            # Only consider expiries that have not passed
+                            future_matches = matches[matches['expiry_dt_str'] >= today_str].copy()
                             if not future_matches.empty:
-                                exact_match = future_matches.head(1)
-                                logger.info(f"Exact expiry {expiry_str} not found. Selecting nearest: {exact_match['expiry_dt_str'].values[0]}")
+                                # Find the expiry closest to our TARGET expiry, not just the nearest to today
+                                target_dt = pd.to_datetime(expiry_str)
+                                future_matches['days_diff'] = (pd.to_datetime(future_matches['expiry_dt_str']) - target_dt).dt.days.abs()
+                                exact_match = future_matches.sort_values('days_diff').head(1)
+                                logger.info(f"Exact expiry {expiry_str} not found. Selecting nearest valid expiry: {exact_match['expiry_dt_str'].values[0]}")
                         
                         if not exact_match.empty:
                             key = exact_match['instrument_key'].values[0]

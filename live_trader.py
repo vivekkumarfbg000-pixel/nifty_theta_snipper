@@ -162,11 +162,15 @@ class LiveTrader:
             
             # 4. Fetch Real Entry Prices for Reporting
             entry_quotes = self.monitor.get_ltp([ce_key, pe_key])
-            ce_entry = entry_quotes.get(ce_key, 100.0) # Fallback to 100 if fetch fails
-            pe_entry = entry_quotes.get(pe_key, 100.0)
+            ce_entry = entry_quotes.get(ce_key)
+            pe_entry = entry_quotes.get(pe_key)
             
-            if ce_key not in entry_quotes or pe_key not in entry_quotes:
-                logger.warning(f"Could not fetch real-time entry LTP for {ce_key}/{pe_key}. Using fallback 100.0")
+            if ce_entry is None or pe_entry is None:
+                # Abort even in Paper Trading: Using dummy premiums causes fake P&L tracking and crashes the loop
+                logger.error(f"Critical Error: Could not fetch real-time entry LTP for {ce_key}/{pe_key}. Instrument may be illiquid. Aborting.")
+                from telegram_bot import send_telegram_message
+                send_telegram_message(f"🚨 *TRADE ABORTED*: Failed to fetch live premiums for selected strike. Check API connectivity or token.")
+                return False
 
             # 5. Telegram Notification
             total_entry_premium = ce_entry + pe_entry
@@ -237,8 +241,8 @@ class LiveTrader:
                     # 2. Fetch Real Exit Prices for Reporting
                     exit_quotes = self.monitor.get_ltp(list(self.active_positions.keys())) if self.active_positions else {}
                     
-                    total_entry_premium = sum(pos['entry_price'] for pos in self.active_positions.values()) if self.active_positions else 0.0
-                    total_exit_premium = sum(exit_quotes.get(k, 100.0) for k in self.active_positions.keys()) if self.active_positions else 0.0
+                    total_entry_premium = sum(pos['entry_price'] for pos in self.active_positions.values() if isinstance(pos['entry_price'], (int, float))) if self.active_positions else 0.0
+                    total_exit_premium = sum(exit_quotes.get(k, pos['entry_price']) for k, pos in self.active_positions.items() if isinstance(exit_quotes.get(k, pos['entry_price']), (int, float))) if self.active_positions else 0.0
                     
                     # 3. Log Today's Trade to Journal
                     trade_stats = log_trade_to_journal(
@@ -278,8 +282,8 @@ class LiveTrader:
             spot = quotes.get(self.nifty_key, 0.0)
             
             # 2. Calculate P&L
-            total_entry = sum(pos['entry_price'] for pos in self.active_positions.values())
-            total_current = sum(quotes.get(k, pos['entry_price']) for k, pos in self.active_positions.items())
+            total_entry = sum(pos['entry_price'] for pos in self.active_positions.values() if isinstance(pos['entry_price'], (int, float)))
+            total_current = sum(quotes.get(k, pos['entry_price']) for k, pos in self.active_positions.items() if isinstance(quotes.get(k, pos['entry_price']), (int, float)))
             points_gain = total_entry - total_current
             qty = next(iter(self.active_positions.values()))['qty']
             pnl = points_gain * qty

@@ -25,6 +25,8 @@ async def get_trades():
     df = get_trades_df()
     if df.empty:
         return []
+    # Handle NaN values for JSON compatibility
+    df = df.fillna("")
     # Convert to list of dicts, sorted by date descending
     return df.sort_values('date', ascending=False).to_dict(orient='records')
 
@@ -40,6 +42,9 @@ async def get_stats():
             "worst_trade": 0,
             "equity_curve": []
         }
+    
+    # Fill NaN values for calculations
+    df['net_pnl'] = df['net_pnl'].fillna(0.0)
     
     # Calculate Metrics
     total_net_pnl = df['net_pnl'].sum()
