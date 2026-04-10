@@ -18,8 +18,8 @@ def run_vps_service():
     Infinite loop daemon that checks the calendar every day and 
     starts the live trader at 09:14:00 AM.
     """
-    logging.info("🚀 Nifty Theta Sniper - VPS Auto-Scheduler Started 24/7.")
-    send_telegram_message("🤖 *VPS Daemon Online*: Sniper is monitoring date and time 24/7.")
+    logging.info("Nifty Theta Sniper - VPS Auto-Scheduler Started 24/7.")
+    send_telegram_message("VPS Daemon Online: Sniper is monitoring date and time 24/7.")
 
     already_run_today = False
     last_run_date = None
@@ -39,7 +39,7 @@ def run_vps_service():
         # Start exactly at 09:14 AM (or slightly after if delayed) to allow initialization before 9:20 AM
         if is_open and not already_run_today:
             if now.hour == 9 and 14 <= now.minute <= 20:
-                msg = f"☀️ *Nifty Theta Sniper*: Trading Day Detected! Injecting Live Bot at 09:14 AM."
+                msg = f"Nifty Theta Sniper: Trading Day Detected! Injecting Live Bot at 09:14 AM."
                 logging.info(msg)
                 send_telegram_message(msg)
                 
@@ -52,7 +52,7 @@ def run_vps_service():
                     # Sleep for the rest of the trading day to save CPU cycles on VPS
                     time.sleep(8 * 3600)  # Sleep 8 hours (until ~ 5 PM)
                 except Exception as e:
-                    err_msg = f"❌ *FATAL*: Failed to launch live_trader: {str(e)}"
+                    err_msg = f"FATAL: Failed to launch live_trader: {str(e)}"
                     logging.error(err_msg)
                     send_telegram_message(err_msg)
                     time.sleep(60) # Don't loop crash
