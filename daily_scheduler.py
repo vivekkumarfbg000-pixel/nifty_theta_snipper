@@ -12,8 +12,8 @@ NSE_HOLIDAYS_2026 = [
     "2026-03-06", # Holi
     "2026-03-27", # Id-ul-Fitr (Ramadan Eid)
     "2026-03-31", # Mahavir Jayanti
-    "2026-04-03", # Good Friday (TODAY)
-    "2026-04-14", # Dr. Baba Saheb Ambedkar Jayanti
+    "2026-04-03", # Good Friday
+    "2026-04-14", # Dr. Baba Saheb Ambedkar Jayanti (TODAY)
     "2026-05-01", # Maharashtra Day
 ]
 

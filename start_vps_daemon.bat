@@ -1,7 +1,7 @@
 @echo off
 title Nifty Theta Sniper VPS 24/7 Daemon
 cd /d "%~dp0"
-set PY_PATH=python
+set PY_PATH="C:\Users\vivek\AppData\Local\Python\pythoncore-3.13-64\python.exe"
 echo ========================================================
 echo   NIFTY THETA SNIPER - AWS VPS AUTOMATION
 echo ========================================================
